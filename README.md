@@ -76,7 +76,7 @@ See `docs/screenshots/README.md` for the capture checklist and sanitization rule
 ## Local development (XAMPP + SQLite)
 
 One-command setup (from `composer.json` `setup` script — installs deps, copies
-`.env.example` to `.env` if missing, generates a key, migrates, and builds assets):
+`.env.local.example` to `.env` if missing, generates a key, migrates, and builds assets):
 
 ```bash
 composer setup
@@ -87,9 +87,10 @@ Or step by step:
 
 ```bash
 composer install
-copy .env.example .env        # Windows (XAMPP); use `cp` on macOS/Linux
+copy .env.local.example .env  # Windows (XAMPP); use `cp` on macOS/Linux
 php artisan key:generate
-# .env: keep the SQLite lines (DB_CONNECTION=sqlite); production DB block stays commented
+# The local template already uses SQLite, log mail, public storage, and
+# http://localhost cookies. Use `.env.example` only as the production template.
 php artisan migrate --force
 php artisan db:seed
 npm install
@@ -115,8 +116,9 @@ php artisan reservations:release-expired --hours=24
 
 ## Environment variables
 
-Copy `.env.example` to `.env` and set per deployment. Grouped summary (see the
-example file for inline guidance):
+Use `.env.local.example` for local development and `.env.example` as the
+production template. Set values per deployment. Grouped summary (see the
+example files for inline guidance):
 
 | Group | Keys |
 |-------|------|
@@ -137,7 +139,10 @@ piles jobs that are never sent.
 
 - Suites: `tests/Unit` and `tests/Feature` (`phpunit.xml`); tests run on SQLite
   `:memory:` with array cache/session/mail drivers.
-- Current checkpoint: **833 tests, 2,958 assertions, green**.
+- CI (`.github/workflows/ci.yml`) runs the suite on PHP 8.2 and 8.4, audits
+  production dependencies, and builds the frontend assets.
+- Current checkpoint: **912 tests, 3,182 assertions, green** (run
+  `php artisan test` for the latest count).
 - Resort-identity gates guard multi-resort neutrality:
   `php artisan test --filter="ResortIdentity"` before launch (see
   `docs/second-resort-deployment.md` §6).
@@ -173,8 +178,11 @@ Deploy checklist:
   (`throttle:cron`); explicit `--hours=` / `?hours=` overrides `booking_hold_hours`.
 - **Storage:** R2 bucket must serve uploads publicly; locally run
   `php artisan storage:link`.
-- **Cache:** production uses `composer build` (`config:cache`, `route:cache`,
-  `view:cache`); clear with `php artisan config:clear` when diagnosing env issues.
+- **Cache:** `composer build` (`config:cache`, `route:cache`, `view:cache`) is
+  available on traditional hosts with a writable project directory. On Vercel,
+  `api/index.php` relocates those caches to `/tmp` because the function
+  filesystem is read-only; clear local caches with `php artisan config:clear`
+  when diagnosing env issues.
 
 ## Multi-resort deployment
 

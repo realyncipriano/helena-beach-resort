@@ -55,7 +55,15 @@ class RefundService
         // status/attempts stay at none/0.
         $hasOnlinePayment = $inquiry->paymongo_payment_id !== null;
 
-        $claimUpdate = ['refunded_at' => now()];
+        // Persist the amount this claim is for at claim time. A concurrent
+        // cancel request that sees ALREADY_CLAIMED can then finalize using the
+        // claimed share instead of falling back to refundableAmount() (the
+        // full collected amount), which would overstate a partial refund.
+        $previousRefundAmount = Inquiry::whereKey($inquiry->id)->value('refund_amount');
+        $claimUpdate = [
+            'refunded_at' => now(),
+            'refund_amount' => $amount ?? $inquiry->refundableAmount(),
+        ];
 
         if ($hasOnlinePayment) {
             $claimUpdate += [
@@ -80,7 +88,10 @@ class RefundService
             // refunded_at is still null (the claim was a bulk update), so it
             // never registers as dirty. Update at the query level instead.
             // WP-7: persist online failures for the retry command.
-            $failedUpdate = ['refunded_at' => null];
+            $failedUpdate = [
+                'refunded_at' => null,
+                'refund_amount' => $previousRefundAmount,
+            ];
 
             if ($hasOnlinePayment) {
                 $failedUpdate += [

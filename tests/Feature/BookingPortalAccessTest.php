@@ -108,6 +108,18 @@ class BookingPortalAccessTest extends TestCase
         $this->get(route('booking.portal.show', $inquiry))->assertOk();
     }
 
+    public function test_lookup_normalizes_email_and_reference_case_and_whitespace(): void
+    {
+        $inquiry = $this->createBooking('CaseGuest@Example.com');
+
+        $this->post(route('booking.portal.lookup.post'), [
+            'email' => '  caseguest@example.COM  ',
+            'reference_code' => '  '.strtolower($inquiry->reference_code).'  ',
+        ])->assertRedirect(route('booking.portal.show', $inquiry));
+
+        $this->get(route('booking.portal.show', $inquiry))->assertOk();
+    }
+
     public function test_lookup_with_wrong_reference_does_not_grant_access(): void
     {
         $inquiry = $this->createBooking('wrongref@example.com');

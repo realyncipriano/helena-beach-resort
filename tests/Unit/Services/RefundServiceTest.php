@@ -5,6 +5,7 @@ namespace Tests\Unit\Services;
 use App\Models\Cottage;
 use App\Models\Inquiry;
 use App\Models\Payment;
+use App\Services\BookingCancellationService;
 use App\Services\PayMongoService;
 use App\Services\RefundService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -66,7 +67,31 @@ class RefundServiceTest extends TestCase
 
         $this->assertSame(RefundService::CLAIMED, $result);
         $this->assertNotNull($inquiry->refresh()->refunded_at);
+        $this->assertSame((string) $inquiry->refundableAmount(), (string) $inquiry->refresh()->refund_amount);
         Http::assertSent(fn ($req) => $req->url() === 'https://api.paymongo.com/v1/refunds');
+    }
+
+    public function test_claimed_amount_survives_a_concurrent_finalize(): void
+    {
+        $this->fakeRefundEndpoint();
+        $inquiry = $this->paidBooking('cancelrace@example.com');
+        $half = number_format((float) $inquiry->total_amount / 2, 2, '.', '');
+
+        // First request claims the tiered share, then is still waiting on
+        // PayMongo when a second cancel request arrives.
+        app(RefundService::class)->claimAndProcess($inquiry, app(PayMongoService::class), $half);
+        $this->assertSame($half, (string) $inquiry->refresh()->refund_amount);
+
+        // The second request lost the claim but finalizes first. It must keep
+        // the claimed share, not fall back to the full collected amount.
+        app(BookingCancellationService::class)->finalizeCancellation(
+            $inquiry->refresh(),
+            true,
+            ['refunded' => false, 'refundAlreadyProcessed' => true, 'quote' => ['refund_amount' => $half]]
+        );
+
+        $this->assertSame(Inquiry::STATUS_CANCELLED, $inquiry->refresh()->status);
+        $this->assertSame($half, (string) $inquiry->refresh()->refund_amount);
     }
 
     public function test_already_claimed_does_not_call_paymongo(): void
@@ -109,6 +134,7 @@ class RefundServiceTest extends TestCase
             app(RefundService::class)->claimAndProcess($inquiry, app(PayMongoService::class));
         } finally {
             $this->assertNull($inquiry->refresh()->refunded_at);
+            $this->assertNull($inquiry->refresh()->refund_amount);
         }
     }
 
@@ -150,6 +176,7 @@ class RefundServiceTest extends TestCase
         $result = app(RefundService::class)->claimAndProcess($inquiry, app(PayMongoService::class), $half);
 
         $this->assertSame(RefundService::CLAIMED, $result);
+        $this->assertSame($half, (string) $inquiry->refresh()->refund_amount);
         $this->assertSame(
             Payment::STATUS_PARTIALLY_REFUNDED,
             Payment::where('provider_payment_id', 'pay_123')->first()->status

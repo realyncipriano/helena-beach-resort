@@ -62,8 +62,16 @@ class BookingPortalController extends Controller
     {
         $validated = $request->validated();
 
-        $inquiry = Inquiry::where('email', $validated['email'])
-            ->where('reference_code', $validated['reference_code'])
+        // Emails are stored exactly as typed at booking time and reference
+        // codes are uppercase, so a guest changing the casing at lookup would
+        // otherwise be locked out. LOWER/UPPER work on SQLite and PostgreSQL;
+        // the inquiries table is small enough that the lost index seek is
+        // negligible for this endpoint.
+        $email = mb_strtolower((string) $validated['email']);
+        $reference = strtoupper((string) $validated['reference_code']);
+
+        $inquiry = Inquiry::whereRaw('LOWER(email) = ?', [$email])
+            ->whereRaw('UPPER(reference_code) = ?', [$reference])
             ->first();
 
         if (! $inquiry) {
